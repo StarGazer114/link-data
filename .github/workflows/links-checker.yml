@@ -1,0 +1,162 @@
+name: Links Checker
+
+on:
+  issues:
+    types: [opened, edited, closed, reopened, labeled, unlabeled]
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  check-and-generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      
+      - name: Check Links & Generate Data
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // === 配置 ===
+            const VALID_LABEL = '链接可用';
+            const INVALID_LABEL = '无法访问';
+            const APPLICATION_LABEL = '友链申请';
+            const EXCLUDE_LABELS = ['审核中', '白名单'];
+            const ACCEPTED_CODES = [200,201,202,203,204,205,206,300,301,302,303,304,307,308];
+            const RETRY_TIMES = 3;
+            const TIMEOUT = 10000;
+            
+            // === 解析 Issue Body ===
+            function parseIssueBody(body) {
+              const result = {};
+              const lines = body.split('\n');
+              let currentField = null;
+              
+              for (const line of lines) {
+                const headerMatch = line.match(/^###\s+(.+)/);
+                if (headerMatch) {
+                  currentField = headerMatch[1].trim();
+                  continue;
+                }
+                if (currentField && line.trim() && line.trim() !== '_No response_') {
+                  const fieldMap = {
+                    '站点名称': 'title',
+                    '站点链接': 'siteurl',
+                    '头像链接': 'imgurl',
+                    '站点描述': 'desc',
+                    '标签（可选）': 'tags',
+                  };
+                  const key = fieldMap[currentField];
+                  if (key && !result[key]) {
+                    result[key] = line.trim();
+                  }
+                }
+              }
+              
+              if (result.tags) {
+                result.tags = result.tags.split(/[,，]/).map(t => t.trim()).filter(Boolean);
+              } else {
+                result.tags = ['朋友们'];
+              }
+              
+              return result;
+            }
+            
+            // === 检查链接可用性 ===
+            async function checkUrl(url, retries = RETRY_TIMES) {
+              for (let i = 0; i < retries; i++) {
+                try {
+                  const controller = new AbortController();
+                  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
+                  const response = await fetch(url, {
+                    method: 'GET',
+                    redirect: 'follow',
+                    signal: controller.signal,
+                    headers: {
+                      'User-Agent': 'Mozilla/5.0 links-checker/1.0',
+                    },
+                  });
+                  clearTimeout(timeoutId);
+                  return ACCEPTED_CODES.includes(response.status);
+                } catch (e) {
+                  if (i === retries - 1) return false;
+                  await new Promise(r => setTimeout(r, 2000));
+                }
+              }
+              return false;
+            }
+            
+            // === 更新 Issue 标签 ===
+            async function updateLabels(issueNumber, isReachable) {
+              const addLabel = isReachable ? VALID_LABEL : INVALID_LABEL;
+              const removeLabel = isReachable ? INVALID_LABEL : VALID_LABEL;
+              
+              try {
+                await github.rest.issues.removeLabel({
+                  ...context.repo, issue_number: issueNumber, name: removeLabel,
+                });
+              } catch {}
+              
+              await github.rest.issues.addLabels({
+                ...context.repo, issue_number: issueNumber, labels: [addLabel],
+              });
+            }
+            
+            // === 主流程 ===
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              ...context.repo,
+              state: 'open',
+              labels: APPLICATION_LABEL,
+              per_page: 100,
+            });
+            
+            const friends = [];
+            
+            for (const issue of issues) {
+              const labels = issue.labels.map(l => l.name);
+              if (EXCLUDE_LABELS.some(el => labels.includes(el))) continue;
+              
+              const info = parseIssueBody(issue.body || '');
+              if (!info.title || !info.siteurl) {
+                core.warning(`Issue #${issue.number}: 缺少必要字段，跳过`);
+                continue;
+              }
+              
+              const isReachable = await checkUrl(info.siteurl);
+              await updateLabels(issue.number, isReachable);
+              
+              core.info(`#${issue.number} ${info.title} (${info.siteurl}) → ${isReachable ? '✅' : '❌'}`);
+              
+              if (isReachable) {
+                friends.push({
+                  id: issue.number,
+                  title: info.title,
+                  siteurl: info.siteurl,
+                  imgurl: info.imgurl || '',
+                  desc: info.desc || '',
+                  tags: info.tags,
+                });
+              }
+            }
+            
+            const output = { content: friends };
+            fs.mkdirSync('v2', { recursive: true });
+            fs.writeFileSync('v2/data.json', JSON.stringify(output, null, 2));
+            core.info(`生成 v2/data.json，共 ${friends.length} 条友链`);
+      
+      - name: Commit & Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add v2/data.json
+          git diff --cached --quiet || (git commit -m "chore: update friends data [skip ci]" && git push)

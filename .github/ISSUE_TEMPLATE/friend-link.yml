@@ -1,0 +1,50 @@
+name: 🔗 友链申请
+description: 申请添加友情链接
+title: "[友链] "
+labels: ["友链申请"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你的友链申请！请填写以下信息，提交后系统会自动检查链接可用性。
+        
+        **申请前请确保**：
+        - ✅ 你的站点可以正常访问
+        - ✅ 你已在自己的站点添加了本站的友链
+  - type: input
+    id: title
+    attributes:
+      label: 站点名称
+      placeholder: "例：拾光小阁"
+    validations:
+      required: true
+  - type: input
+    id: siteurl
+    attributes:
+      label: 站点链接
+      description: 以 https:// 开头的完整 URL
+      placeholder: "https://example.com"
+    validations:
+      required: true
+  - type: input
+    id: imgurl
+    attributes:
+      label: 头像链接
+      description: 站点头像/Logo 图片的直链
+      placeholder: "https://example.com/avatar.png"
+    validations:
+      required: true
+  - type: input
+    id: desc
+    attributes:
+      label: 站点描述
+      description: 一句话介绍
+      placeholder: "一个关于技术和生活的博客"
+    validations:
+      required: true
+  - type: input
+    id: tags
+    attributes:
+      label: 标签（可选）
+      description: 多个标签用逗号分隔，留空默认为「朋友们」
+      placeholder: "技术, 生活"
