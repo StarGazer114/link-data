@@ -1,3 +1,14 @@
 {
-  "content": []
+  "content": [
+    {
+      "id": 1,
+      "title": "拾光小阁",
+      "siteurl": "https://blog.bear556.top",
+      "imgurl": "https://www.bear556.top/img/avatar.webp",
+      "desc": "万钟则不辨礼仪而受之，万钟于我美滋滋",
+      "tags": [
+        "朋友们"
+      ]
+    }
+  ]
 }
